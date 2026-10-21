@@ -1,0 +1,154 @@
+name: Build Android APK (TRUST WALLET PRO)
+
+on:
+  push:
+    branches:
+      - '**'
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - '**'
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'نوع البناء / Build Type'
+        required: true
+        default: 'debug'
+        type: choice
+        options:
+          - debug
+          - release
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Standalone Offline APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      actions: write
+
+    steps:
+      - name: 1. Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 2. Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: 3. Install Web Dependencies & Build React App
+        run: |
+          echo "=================================================="
+          echo "Verifying environment and fallback configs..."
+          if [ ! -f "firebase-applet-config.json" ]; then
+            echo "Creating fallback firebase configuration for build..."
+            echo '{"projectId":"placeholder","appId":"1:0:web:0","apiKey":"dummy","authDomain":"placeholder.firebaseapp.com","firestoreDatabaseId":"(default)"}' > firebase-applet-config.json
+          fi
+
+          echo "Installing dependencies with legacy peer deps..."
+          npm install --legacy-peer-deps
+
+          echo "Compiling Vite React SPA..."
+          npm run build
+
+          echo "Syncing production web assets into Android offline assets directory..."
+          mkdir -p app/src/main/assets
+          rm -rf app/src/main/assets/dist
+          cp -r dist app/src/main/assets/
+
+          echo "Verifying bundled assets size and files:"
+          ls -la app/src/main/assets/dist
+          echo "=================================================="
+
+      - name: 4. Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: 5. Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: 6. Make Gradlew Executable
+        run: chmod +x gradlew
+
+      - name: 7. Accept Android SDK Licenses
+        run: |
+          export ANDROID_HOME=${ANDROID_HOME:-/usr/local/lib/android/sdk}
+          mkdir -p "$ANDROID_HOME/licenses" || true
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses 2>/dev/null || true
+
+      - name: 8. Build Android APK
+        run: |
+          echo "Compiling Android APK with embedded offline assets..."
+          BUILD_TYPE="${{ github.event.inputs.build_type || 'debug' }}"
+          if [ "$BUILD_TYPE" = "release" ]; then
+            ./gradlew assembleRelease --stacktrace --no-daemon
+          else
+            ./gradlew assembleDebug --stacktrace --no-daemon
+          fi
+
+      - name: 9. Locate & Verify Generated APK
+        id: find_apk
+        run: |
+          echo "Searching for generated APK file..."
+          APK_FILE=$(find app/build/outputs/apk -type f -name "*.apk" | head -n 1)
+          if [ -n "$APK_FILE" ]; then
+            echo "=================================================="
+            echo "SUCCESS: Standalone APK Generated at: $APK_FILE"
+            ls -lh "$APK_FILE"
+            APK_NAME=$(basename "$APK_FILE")
+            APK_SIZE=$(du -h "$APK_FILE" | cut -f1)
+            SHA256=$(sha256sum "$APK_FILE" | cut -d' ' -f1)
+            echo "apk_path=$APK_FILE" >> $GITHUB_OUTPUT
+            echo "apk_name=$APK_NAME" >> $GITHUB_OUTPUT
+            echo "apk_size=$APK_SIZE" >> $GITHUB_OUTPUT
+            echo "sha256=$SHA256" >> $GITHUB_OUTPUT
+            echo "=================================================="
+
+            # Generate GitHub Step Summary in Markdown
+            echo "## 🚀 تم إنشاء تطبيق TRUST WALLET PRO APK بنجاح!" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| الخاصية | القيمة |" >> $GITHUB_STEP_SUMMARY
+            echo "| --- | --- |" >> $GITHUB_STEP_SUMMARY
+            echo "| **اسم الملف** | \`$APK_NAME\` |" >> $GITHUB_STEP_SUMMARY
+            echo "| **الحجم** | \`$APK_SIZE\` |" >> $GITHUB_STEP_SUMMARY
+            echo "| **النوع** | Standalone Offline WebView (تعمل بدون اتصال) |" >> $GITHUB_STEP_SUMMARY
+            echo "| **بصمة SHA256** | \`$SHA256\` |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "📥 يمكنك تنزيل ملف الـ APK مباشرة من قسم **Artifacts** في أسفل صفحة هذا الـ Run." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "ERROR: No APK was generated in app/build/outputs/apk"
+            exit 1
+          fi
+
+      - name: 10. Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TRUST-WALLET-PRO-APK-${{ github.run_number }}
+          path: app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: 11. Create GitHub Release (On Tag Push)
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          name: Release ${{ github.ref_name }} - Trust Wallet Pro
+          files: app/build/outputs/apk/**/*.apk
+          draft: false
+          prerelease: false
+          body: |
+            ## 📱 TRUST WALLET PRO Standalone Android APK
+            - **الإصدار**: ${{ github.ref_name }}
+            - **تاريخ البناء**: ${{ github.event.head_commit.timestamp || 'Latest' }}
+            - التطبيق مدمج بداخله كافة واجهات المحفظة ليعمل مباشرة بدون خادم خارجي.
