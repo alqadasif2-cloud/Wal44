@@ -61,11 +61,14 @@ jobs:
 
           echo "Syncing production web assets into Android offline assets directory..."
           mkdir -p app/src/main/assets
-          rm -rf app/src/main/assets/dist
-          cp -r dist app/src/main/assets/
+          rm -rf app/src/main/assets/*
+          mkdir -p app/src/main/assets/dist
+          cp -r dist/* app/src/main/assets/dist/
+          cp -r dist/* app/src/main/assets/
 
           echo "Verifying bundled assets size and files:"
           ls -la app/src/main/assets/dist
+          ls -la app/src/main/assets/dist/assets || true
           echo "=================================================="
 
       - name: 4. Set up JDK 17

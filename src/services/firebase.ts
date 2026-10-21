@@ -1,14 +1,51 @@
-import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
+import { getAuth, GoogleAuthProvider, Auth } from 'firebase/auth';
+import { getFirestore, Firestore } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
-// Initialize Firebase App singleton
-export const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+// Safe Firebase App singleton
+let appInstance: FirebaseApp;
+try {
+  appInstance = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+} catch (e) {
+  console.warn('[Firebase] App initialization warning:', e);
+  try {
+    appInstance = getApps()[0] || initializeApp({
+      projectId: 'trustwalletpro',
+      appId: '1:0:web:0',
+      apiKey: 'AIzaDummyKeyForOfflineSafeInit',
+    });
+  } catch {
+    appInstance = {} as FirebaseApp;
+  }
+}
+export const app = appInstance;
 
-// CRITICAL: Always pass firestoreDatabaseId to getFirestore
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
-export const auth = getAuth(app);
+// Safe Firestore initialization
+let dbInstance: Firestore;
+try {
+  dbInstance = firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)'
+    ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
+    : getFirestore(app);
+} catch (e) {
+  console.warn('[Firebase] Firestore initialization warning:', e);
+  try {
+    dbInstance = getFirestore(app);
+  } catch {
+    dbInstance = {} as Firestore;
+  }
+}
+export const db = dbInstance;
+
+// Safe Auth initialization
+let authInstance: Auth;
+try {
+  authInstance = getAuth(app);
+} catch (e) {
+  console.warn('[Firebase] Auth initialization warning:', e);
+  authInstance = {} as Auth;
+}
+export const auth = authInstance;
 export const googleProvider = new GoogleAuthProvider();
 
 export enum OperationType {
@@ -36,10 +73,10 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
+      userId: auth?.currentUser?.uid,
+      email: auth?.currentUser?.email,
+      emailVerified: auth?.currentUser?.emailVerified,
+      isAnonymous: auth?.currentUser?.isAnonymous,
     },
     operationType,
     path,

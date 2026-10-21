@@ -50,7 +50,11 @@ export default function App() {
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
   const [showAdminDashboard, setShowAdminDashboard] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState<boolean>(() => {
-    return typeof window !== 'undefined' ? !WalletDatabase.getCurrentUser() : true;
+    try {
+      return typeof window !== 'undefined' ? !WalletDatabase.getCurrentUser() : true;
+    } catch {
+      return true;
+    }
   });
   const [showChatModal, setShowChatModal] = useState(false);
   const [chatRecipient, setChatRecipient] = useState<User | null>(null);
@@ -60,33 +64,42 @@ export default function App() {
 
   // Load and refresh state from database
   const refreshAppData = useCallback(() => {
-    // 1. Run expiration check
-    WalletDatabase.checkAndReleaseExpiredLocks();
+    try {
+      // 1. Run expiration check
+      WalletDatabase.checkAndReleaseExpiredLocks();
 
-    // 2. Fetch current user
-    const user = WalletDatabase.getCurrentUser();
-    setCurrentUser(user);
+      // 2. Fetch current user
+      const user = WalletDatabase.getCurrentUser();
+      setCurrentUser(user);
 
-    if (user) {
-      const userWallet = WalletDatabase.getWalletByUserId(user.userId);
-      setWallet(userWallet || null);
+      if (user) {
+        const userWallet = WalletDatabase.getWalletByUserId(user.userId);
+        setWallet(userWallet || null);
 
-      const userTxs = WalletDatabase.getUserTransactions(user.userId);
-      setTransactions(userTxs);
+        const userTxs = WalletDatabase.getUserTransactions(user.userId);
+        setTransactions(userTxs || []);
 
-      const userNotifs = WalletDatabase.getNotifications(user.userId);
-      setNotifications(userNotifs);
-    } else {
-      setWallet(null);
-      setTransactions([]);
-      setNotifications([]);
+        const userNotifs = WalletDatabase.getNotifications(user.userId);
+        setNotifications(userNotifs || []);
+      } else {
+        setWallet(null);
+        setTransactions([]);
+        setNotifications([]);
+        setShowAuthModal(true);
+      }
+    } catch (e) {
+      console.warn('Error refreshing app data:', e);
       setShowAuthModal(true);
     }
   }, []);
 
   // Initialize DB and load data
   useEffect(() => {
-    WalletDatabase.initialize();
+    try {
+      WalletDatabase.initialize();
+    } catch (e) {
+      console.warn('Failed to initialize WalletDatabase:', e);
+    }
     refreshAppData();
   }, [refreshAppData]);
 
